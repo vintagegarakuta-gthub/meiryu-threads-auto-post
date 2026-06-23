@@ -2,8 +2,15 @@ name: Threads自動投稿
 
 on:
   schedule:
-    - cron: "0 12 * * 1-5"  # 毎週月〜金 21:00 JST (UTC 12:00)
+    - cron: "0 21 * * 0-4"   # 朝6:00 JST 月〜金 (UTC日〜木 21:00)
+    - cron: "0 3 * * 1-5"    # 昼12:00 JST 月〜金 (UTC 3:00)
+    - cron: "0 12 * * 1-5"   # 晩21:00 JST 月〜金 (UTC 12:00)
   workflow_dispatch:
+    inputs:
+      post_type:
+        description: "投稿タイプ (A/B/C)"
+        required: false
+        default: "A"
 
 permissions:
   contents: write
@@ -21,18 +28,30 @@ jobs:
       - name: 依存パッケージインストール
         run: pip install -r requirements.txt
 
+      - name: 投稿タイプを判定
+        id: type
+        run: |
+          HOUR=$(TZ=Asia/Tokyo date +%H)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "post_type=${{ github.event.inputs.post_type }}" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" -ge 5 ] && [ "$HOUR" -lt 10 ]; then
+            echo "post_type=A" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" -ge 10 ] && [ "$HOUR" -lt 17 ]; then
+            echo "post_type=B" >> $GITHUB_OUTPUT
+          else
+            echo "post_type=C" >> $GITHUB_OUTPUT
+          fi
+
       - name: Threads投稿
         env:
           THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
           THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
-          POST_HOUR: "21"
-          POST_MINUTE: "0"
-        run: python threads_auto_post.py --once
+        run: python threads_auto_post.py --once --type=${{ steps.type.outputs.post_type }}
 
       - name: 投稿ログをリポジトリに保存
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add post_log.csv
-          git diff --cached --quiet || git commit -m "post_log: $(date +'%Y-%m-%d') 投稿記録"
+          git diff --cached --quiet || git commit -m "post_log: $(TZ=Asia/Tokyo date +'%Y-%m-%d %H:%M') 投稿記録"
           git push

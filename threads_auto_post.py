@@ -26,7 +26,9 @@ with open(POSTS_FILE, "r", encoding="utf-8") as f:
 post_index = {"A": 0, "B": 0, "C": 0}
 
 
-def get_post_type_for_today() -> str:
+def get_post_type_for_today(forced_type: str = None) -> str:
+    if forced_type:
+        return forced_type
     day = datetime.now().strftime("%a")
     return POSTS_DATA["schedule"].get(day, "A")
 
@@ -73,8 +75,8 @@ def save_post_log(post_id: str, post_type: str, post_meta: dict):
         })
 
 
-def post_today():
-    post_type = get_post_type_for_today()
+def post_today(forced_type: str = None):
+    post_type = get_post_type_for_today(forced_type)
     post = get_next_post(post_type)
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M')}] 投稿開始: {post['id']} - {post['title']}")
 
@@ -91,13 +93,18 @@ def post_today():
 
 
 def main():
+    forced_type = None
+    for arg in sys.argv[1:]:
+        if arg.startswith("--type="):
+            forced_type = arg.split("=")[1].upper()
+
     if "--once" in sys.argv:
-        post_today()
+        post_today(forced_type)
         return
 
     post_time = f"{POST_HOUR:02d}:{POST_MINUTE:02d}"
     print(f"Threads自動投稿スケジューラー起動 - 毎日 {post_time} に投稿")
-    schedule.every().day.at(post_time).do(post_today)
+    schedule.every().day.at(post_time).do(post_today, forced_type)
     while True:
         schedule.run_pending()
         time.sleep(30)
