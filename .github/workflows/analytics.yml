@@ -1,15 +1,15 @@
-name: Threads自動投稿
+name: Threads投稿分析
 
 on:
   schedule:
-    - cron: "0 12 * * 1-5"  # 毎週月〜金 21:00 JST (UTC 12:00)
+    - cron: "30 12 * * 2-6"  # 毎週火〜土 21:30 JST（前日分を分析）
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  post:
+  analyze:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,18 +21,16 @@ jobs:
       - name: 依存パッケージインストール
         run: pip install -r requirements.txt
 
-      - name: Threads投稿
+      - name: インサイト取得
         env:
           THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
           THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
-          POST_HOUR: "21"
-          POST_MINUTE: "0"
-        run: python threads_auto_post.py --once
+        run: python threads_analytics.py
 
-      - name: 投稿ログをリポジトリに保存
+      - name: 分析データをリポジトリに保存
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add post_log.csv
-          git diff --cached --quiet || git commit -m "post_log: $(date +'%Y-%m-%d') 投稿記録"
+          git add analytics.csv
+          git diff --cached --quiet || git commit -m "analytics: $(date +'%Y-%m-%d') インサイト更新"
           git push
