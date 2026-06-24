@@ -5,6 +5,7 @@ on:
     - cron: "0 21 * * 0-4"   # 朝6:00 JST 月〜金 (UTC日〜木 21:00)
     - cron: "0 3 * * 1-5"    # 昼12:00 JST 月〜金 (UTC 3:00)
     - cron: "0 12 * * 1-5"   # 晩21:00 JST 月〜金 (UTC 12:00)
+    - cron: "42 4 * * *"     # テスト用（削除予定）
   workflow_dispatch:
     inputs:
       post_type:
