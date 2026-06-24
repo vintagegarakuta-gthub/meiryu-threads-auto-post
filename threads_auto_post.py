@@ -3,27 +3,32 @@ import sys
 import json
 import csv
 import requests
-import schedule
-import time
 from datetime import datetime
 from typing import Optional
-from dotenv import load_dotenv
-
-load_dotenv()
 
 ACCESS_TOKEN = os.getenv("THREADS_ACCESS_TOKEN")
 USER_ID      = os.getenv("THREADS_USER_ID")
-POST_HOUR    = int(os.getenv("POST_HOUR", "21"))
-POST_MINUTE  = int(os.getenv("POST_MINUTE", "0"))
 
-BASE_DIR   = os.path.dirname(__file__)
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 POSTS_FILE = os.path.join(BASE_DIR, "posts.json")
 LOG_FILE   = os.path.join(BASE_DIR, "post_log.csv")
 
 with open(POSTS_FILE, "r", encoding="utf-8") as f:
     POSTS_DATA = json.load(f)
 
-post_index = {"A": 0, "B": 0, "C": 0}
+
+def get_posted_keys() -> dict:
+    posted = {"A": [], "B": [], "C": []}
+    if not os.path.exists(LOG_FILE):
+        return posted
+    with open(LOG_FILE, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            ptype = row.get("post_type", "")
+            pkey  = row.get("post_key", "")
+            if ptype in posted and pkey:
+                posted[ptype].append(pkey)
+    return posted
 
 
 def get_post_type_for_today(forced_type: str = None) -> str:
@@ -33,11 +38,15 @@ def get_post_type_for_today(forced_type: str = None) -> str:
     return POSTS_DATA["schedule"].get(day, "A")
 
 
-def get_next_post(post_type: str) -> dict:
+def get_next_post(post_type: str) -> Optional[dict]:
     posts = POSTS_DATA["posts"][post_type]
-    idx = post_index[post_type] % len(posts)
-    post_index[post_type] += 1
-    return posts[idx]
+    posted_keys = get_posted_keys()[post_type]
+    for post in posts:
+        if post["id"] not in posted_keys:
+            return post
+    # 全コンテンツ使い切り → 最初からループ
+    print(f"[INFO] {post_type}タイプの全コンテンツ投稿完了。最初からループします。")
+    return posts[0] if posts else None
 
 
 def create_threads_post(text: str) -> Optional[str]:
@@ -78,18 +87,22 @@ def save_post_log(post_id: str, post_type: str, post_meta: dict):
 def post_today(forced_type: str = None):
     post_type = get_post_type_for_today(forced_type)
     post = get_next_post(post_type)
+    if not post:
+        print(f"[ERROR] 投稿コンテンツがありません（タイプ: {post_type}）")
+        sys.exit(1)
+
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M')}] 投稿開始: {post['id']} - {post['title']}")
 
     creation_id = create_threads_post(post["body"])
     if not creation_id:
-        return
+        sys.exit(1)
 
     published_id = publish_threads_post(creation_id)
     if published_id:
         save_post_log(published_id, post_type, post)
         print(f"[OK] 投稿完了: {post['title']} (ID: {published_id})")
     else:
-        print(f"[NG] 投稿失敗: {post['title']}")
+        sys.exit(1)
 
 
 def main():
@@ -102,6 +115,13 @@ def main():
         post_today(forced_type)
         return
 
+    # ローカルスケジューラーモード
+    from dotenv import load_dotenv
+    import schedule
+    import time
+    load_dotenv()
+    POST_HOUR   = int(os.getenv("POST_HOUR", "21"))
+    POST_MINUTE = int(os.getenv("POST_MINUTE", "0"))
     post_time = f"{POST_HOUR:02d}:{POST_MINUTE:02d}"
     print(f"Threads自動投稿スケジューラー起動 - 毎日 {post_time} に投稿")
     schedule.every().day.at(post_time).do(post_today, forced_type)
