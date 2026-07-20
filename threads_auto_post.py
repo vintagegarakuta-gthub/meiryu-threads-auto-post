@@ -41,13 +41,11 @@ def get_post_type_for_today(forced_type: str = None) -> str:
 
 def get_next_post(post_type: str) -> Optional[dict]:
     posts = POSTS_DATA["posts"][post_type]
-    posted_keys = get_posted_keys()[post_type]
-    for post in posts:
-        if post["id"] not in posted_keys:
-            return post
-    # 全コンテンツ使い切り → 最初からループ
-    print(f"[INFO] {post_type}タイプの全コンテンツ投稿完了。最初からループします。")
-    return posts[0] if posts else None
+    if not posts:
+        return None
+    # 投稿済み件数を基準に順番に循環させる（同一投稿の無限リピートを防止）
+    posted_count = len(get_posted_keys()[post_type])
+    return posts[posted_count % len(posts)]
 
 
 def create_threads_post(text: str) -> Optional[str]:
