@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import csv
+import time
 import requests
 from datetime import datetime
 from typing import Optional
@@ -58,12 +59,16 @@ def create_threads_post(text: str) -> Optional[str]:
     return None
 
 
-def publish_threads_post(creation_id: str) -> Optional[str]:
+def publish_threads_post(creation_id: str, max_retries: int = 3, retry_delay: int = 20) -> Optional[str]:
     url = f"https://graph.threads.net/v1.0/{USER_ID}/threads_publish"
-    res = requests.post(url, params={"creation_id": creation_id, "access_token": ACCESS_TOKEN})
-    if res.status_code == 200:
-        return res.json().get("id")
-    print(f"[ERROR] 公開失敗: {res.status_code} {res.text}")
+    for attempt in range(1, max_retries + 1):
+        res = requests.post(url, params={"creation_id": creation_id, "access_token": ACCESS_TOKEN})
+        if res.status_code == 200:
+            return res.json().get("id")
+        print(f"[ERROR] 公開失敗 (試行{attempt}/{max_retries}): {res.status_code} {res.text}")
+        # Meta側のメディアコンテナ反映待ち（Media Not Found対策）
+        if attempt < max_retries:
+            time.sleep(retry_delay)
     return None
 
 
@@ -97,6 +102,7 @@ def post_today(forced_type: str = None):
     if not creation_id:
         sys.exit(1)
 
+    time.sleep(15)  # Meta側のメディアコンテナ反映待ち（Media Not Found対策）
     published_id = publish_threads_post(creation_id)
     if published_id:
         save_post_log(published_id, post_type, post)
