@@ -3,6 +3,7 @@ import sys
 import json
 import csv
 import time
+import random
 import requests
 from datetime import datetime
 from typing import Optional
@@ -46,6 +47,10 @@ def get_next_post(post_type: str) -> Optional[dict]:
     # 投稿済み件数を基準に順番に循環させる（同一投稿の無限リピートを防止）
     posted_count = len(get_posted_keys()[post_type])
     return posts[posted_count % len(posts)]
+
+
+def render_post_body(body: str) -> str:
+    return body.replace("{REMAINING}", str(random.randint(1, 3)))
 
 
 def create_threads_post(text: str) -> Optional[str]:
@@ -96,7 +101,8 @@ def post_today(forced_type: str = None):
 
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M')}] 投稿開始: {post['id']} - {post['title']}")
 
-    creation_id = create_threads_post(post["body"])
+    body = render_post_body(post["body"])
+    creation_id = create_threads_post(body)
     if not creation_id:
         sys.exit(1)
 
