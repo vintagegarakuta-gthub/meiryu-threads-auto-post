@@ -5,10 +5,12 @@ on:
     - cron: "0 21 * * 0-4"   # 朝6:00 JST 月〜金 (UTC日〜木 21:00)
     - cron: "0 3 * * 1-5"    # 昼12:00 JST 月〜金 (UTC 3:00)
     - cron: "0 12 * * 1-5"   # 晩21:00 JST 月〜金 (UTC 12:00)
+    - cron: "0 3 * * 6"      # 昼12:00 JST 土 (UTC 3:00) → D（実例訴求）
+    - cron: "0 3 * * 0"      # 昼12:00 JST 日 (UTC 3:00) → E（ストーリー連載）
   workflow_dispatch:
     inputs:
       post_type:
-        description: "投稿タイプ (A/B/C)"
+        description: "投稿タイプ (A/B/C/D/E)"
         required: false
         default: "A"
 
@@ -32,8 +34,13 @@ jobs:
         id: type
         run: |
           HOUR=$(TZ=Asia/Tokyo date +%H)
+          DOW=$(TZ=Asia/Tokyo date +%u)  # 1=Mon ... 6=Sat, 7=Sun
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "post_type=${{ github.event.inputs.post_type }}" >> $GITHUB_OUTPUT
+          elif [ "$DOW" = "6" ]; then
+            echo "post_type=D" >> $GITHUB_OUTPUT
+          elif [ "$DOW" = "7" ]; then
+            echo "post_type=E" >> $GITHUB_OUTPUT
           elif [ "$HOUR" -ge 5 ] && [ "$HOUR" -lt 10 ]; then
             echo "post_type=A" >> $GITHUB_OUTPUT
           elif [ "$HOUR" -ge 10 ] && [ "$HOUR" -lt 17 ]; then
@@ -46,6 +53,9 @@ jobs:
         env:
           THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
           THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
+          WP_BASE_URL: ${{ secrets.WP_BASE_URL }}
+          WP_USER: ${{ secrets.WP_USER }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
         run: python threads_auto_post.py --once --type=${{ steps.type.outputs.post_type }}
 
       - name: 投稿ログをリポジトリに保存

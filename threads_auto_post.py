@@ -11,6 +11,10 @@ from typing import Optional
 ACCESS_TOKEN = os.getenv("THREADS_ACCESS_TOKEN")
 USER_ID      = os.getenv("THREADS_USER_ID")
 
+WP_BASE_URL     = os.getenv("WP_BASE_URL")
+WP_USER         = os.getenv("WP_USER")
+WP_APP_PASSWORD = os.getenv("WP_APP_PASSWORD")
+
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 POSTS_FILE = os.path.join(BASE_DIR, "posts.json")
 LOG_FILE   = os.path.join(BASE_DIR, "post_log.csv")
@@ -62,6 +66,104 @@ def create_threads_post(text: str) -> Optional[str]:
     return None
 
 
+def upload_image_to_wordpress(local_path: str) -> Optional[str]:
+    """posts.json内の相対パス画像（リポジトリルート基準）をWordPressメディアライブラリへ
+    アップロードし、公開URLを返す。Threads APIはローカルファイルを読めず、
+    image_urlに公開URLが必須のため。"""
+    if not (WP_BASE_URL and WP_USER and WP_APP_PASSWORD):
+        print("[ERROR] WP_BASE_URL / WP_USER / WP_APP_PASSWORD が未設定")
+        return None
+
+    abs_path = os.path.join(BASE_DIR, local_path)
+    if not os.path.exists(abs_path):
+        print(f"[ERROR] 画像ファイルが見つかりません: {abs_path}")
+        return None
+
+    filename = os.path.basename(abs_path)
+    content_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
+    with open(abs_path, "rb") as f:
+        file_bytes = f.read()
+
+    res = requests.post(
+        f"{WP_BASE_URL.rstrip('/')}/wp-json/wp/v2/media",
+        auth=(WP_USER, WP_APP_PASSWORD),
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Type": content_type,
+        },
+        data=file_bytes,
+    )
+    if res.status_code in (200, 201):
+        return res.json().get("source_url")
+    print(f"[ERROR] WordPressアップロード失敗: {res.status_code} {res.text}")
+    return None
+
+
+def create_carousel_item(image_url: str) -> Optional[str]:
+    url = f"https://graph.threads.net/v1.0/{USER_ID}/threads"
+    res = requests.post(url, params={
+        "media_type": "IMAGE",
+        "image_url": image_url,
+        "is_carousel_item": "true",
+        "access_token": ACCESS_TOKEN,
+    })
+    if res.status_code == 200:
+        return res.json().get("id")
+    print(f"[ERROR] カルーセル子要素の作成失敗: {res.status_code} {res.text}")
+    return None
+
+
+def create_single_image_post(image_url: str, text: str) -> Optional[str]:
+    url = f"https://graph.threads.net/v1.0/{USER_ID}/threads"
+    res = requests.post(url, params={
+        "media_type": "IMAGE",
+        "image_url": image_url,
+        "text": text,
+        "access_token": ACCESS_TOKEN,
+    })
+    if res.status_code == 200:
+        return res.json().get("id")
+    print(f"[ERROR] 画像投稿の作成失敗: {res.status_code} {res.text}")
+    return None
+
+
+def create_carousel_post(children_ids: list, text: str) -> Optional[str]:
+    url = f"https://graph.threads.net/v1.0/{USER_ID}/threads"
+    res = requests.post(url, params={
+        "media_type": "CAROUSEL",
+        "children": ",".join(children_ids),
+        "text": text,
+        "access_token": ACCESS_TOKEN,
+    })
+    if res.status_code == 200:
+        return res.json().get("id")
+    print(f"[ERROR] カルーセル本体の作成失敗: {res.status_code} {res.text}")
+    return None
+
+
+def create_image_or_carousel_post(image_paths: list, text: str) -> Optional[str]:
+    image_urls = []
+    for path in image_paths:
+        public_url = upload_image_to_wordpress(path)
+        if not public_url:
+            print(f"[ERROR] 画像アップロードに失敗したため投稿を中止: {path}")
+            return None
+        image_urls.append(public_url)
+
+    if len(image_urls) == 1:
+        return create_single_image_post(image_urls[0], text)
+
+    children_ids = []
+    for image_url in image_urls:
+        child_id = create_carousel_item(image_url)
+        if not child_id:
+            print("[ERROR] カルーセル子要素の作成に失敗したため投稿を中止")
+            return None
+        children_ids.append(child_id)
+
+    return create_carousel_post(children_ids, text)
+
+
 def publish_threads_post(creation_id: str, max_retries: int = 3, retry_delay: int = 20) -> Optional[str]:
     url = f"https://graph.threads.net/v1.0/{USER_ID}/threads_publish"
     for attempt in range(1, max_retries + 1):
@@ -102,7 +204,10 @@ def post_today(forced_type: str = None):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M')}] 投稿開始: {post['id']} - {post['title']}")
 
     body = render_post_body(post["body"])
-    creation_id = create_threads_post(body)
+    if post.get("images"):
+        creation_id = create_image_or_carousel_post(post["images"], body)
+    else:
+        creation_id = create_threads_post(body)
     if not creation_id:
         sys.exit(1)
 
