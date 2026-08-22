@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import json
 import csv
@@ -7,6 +8,7 @@ import random
 import requests
 from datetime import datetime
 from typing import Optional
+from urllib.parse import quote
 
 ACCESS_TOKEN = os.getenv("THREADS_ACCESS_TOKEN")
 USER_ID      = os.getenv("THREADS_USER_ID")
@@ -84,11 +86,20 @@ def upload_image_to_wordpress(local_path: str) -> Optional[str]:
     with open(abs_path, "rb") as f:
         file_bytes = f.read()
 
+    # HTTPヘッダーはlatin-1しかエンコードできないため、日本語ファイル名は
+    # そのまま入れるとUnicodeEncodeErrorになる。ASCII安全な名前をfilenameに、
+    # 元のファイル名はRFC 6266のfilename*でパーセントエンコードして保持する。
+    ascii_filename = re.sub(r"[^A-Za-z0-9._-]", "_", filename) or "image"
+    encoded_filename = quote(filename)
+
     res = requests.post(
         f"{WP_BASE_URL.rstrip('/')}/wp-json/wp/v2/media",
         auth=(WP_USER, WP_APP_PASSWORD),
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": (
+                f'attachment; filename="{ascii_filename}"; '
+                f"filename*=UTF-8''{encoded_filename}"
+            ),
             "Content-Type": content_type,
         },
         data=file_bytes,
