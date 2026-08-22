@@ -24,7 +24,7 @@ with open(POSTS_FILE, "r", encoding="utf-8") as f:
 
 
 def get_posted_keys() -> dict:
-    posted = {"A": [], "B": [], "C": []}
+    posted = {ptype: [] for ptype in POSTS_DATA["posts"]}
     if not os.path.exists(LOG_FILE):
         return posted
     with open(LOG_FILE, "r", encoding="utf-8") as f:
