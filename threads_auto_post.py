@@ -79,6 +79,27 @@ def get_public_image_url(local_path: str) -> Optional[str]:
     return f"https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/{encoded_path}"
 
 
+def wait_for_container_ready(creation_id: str, max_wait: int = 60, interval: int = 5) -> bool:
+    """カルーセル子要素のメディアコンテナがMeta側でFINISHEDになるまで待つ。
+    処理中のコンテナIDをカルーセル本体に渡すと『Invalid Carousel Children』で
+    失敗するため。"""
+    url = f"https://graph.threads.net/v1.0/{creation_id}"
+    waited = 0
+    while waited < max_wait:
+        res = requests.get(url, params={"fields": "status,error_message", "access_token": ACCESS_TOKEN})
+        if res.status_code == 200:
+            status = res.json().get("status")
+            if status == "FINISHED":
+                return True
+            if status in ("ERROR", "EXPIRED"):
+                print(f"[ERROR] メディアコンテナ処理失敗: {creation_id} status={status}")
+                return False
+        time.sleep(interval)
+        waited += interval
+    print(f"[ERROR] メディアコンテナ処理待ちタイムアウト: {creation_id}")
+    return False
+
+
 def create_carousel_item(image_url: str) -> Optional[str]:
     url = f"https://graph.threads.net/v1.0/{USER_ID}/threads"
     res = requests.post(url, params={
@@ -138,6 +159,9 @@ def create_image_or_carousel_post(image_paths: list, text: str) -> Optional[str]
         child_id = create_carousel_item(image_url)
         if not child_id:
             print("[ERROR] カルーセル子要素の作成に失敗したため投稿を中止")
+            return None
+        if not wait_for_container_ready(child_id):
+            print(f"[ERROR] カルーセル子要素の処理待ちに失敗したため投稿を中止: {child_id}")
             return None
         children_ids.append(child_id)
 
