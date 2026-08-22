@@ -1,5 +1,4 @@
 import os
-import re
 import sys
 import json
 import csv
@@ -13,9 +12,8 @@ from urllib.parse import quote
 ACCESS_TOKEN = os.getenv("THREADS_ACCESS_TOKEN")
 USER_ID      = os.getenv("THREADS_USER_ID")
 
-WP_BASE_URL     = os.getenv("WP_BASE_URL")
-WP_USER         = os.getenv("WP_USER")
-WP_APP_PASSWORD = os.getenv("WP_APP_PASSWORD")
+GITHUB_REPO   = os.getenv("GITHUB_REPOSITORY", "vintagegarakuta-gthub/meiryu-threads-auto-post")
+GITHUB_BRANCH = "main"
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 POSTS_FILE = os.path.join(BASE_DIR, "posts.json")
@@ -68,46 +66,17 @@ def create_threads_post(text: str) -> Optional[str]:
     return None
 
 
-def upload_image_to_wordpress(local_path: str) -> Optional[str]:
-    """posts.json内の相対パス画像（リポジトリルート基準）をWordPressメディアライブラリへ
-    アップロードし、公開URLを返す。Threads APIはローカルファイルを読めず、
-    image_urlに公開URLが必須のため。"""
-    if not (WP_BASE_URL and WP_USER and WP_APP_PASSWORD):
-        print("[ERROR] WP_BASE_URL / WP_USER / WP_APP_PASSWORD が未設定")
-        return None
-
+def get_public_image_url(local_path: str) -> Optional[str]:
+    """posts.json内の相対パス画像（リポジトリルート基準）を、GitHub上の
+    公開URL（raw.githubusercontent.com）に変換する。Threads APIはローカル
+    ファイルを読めず、image_urlに公開URLが必須のため。"""
     abs_path = os.path.join(BASE_DIR, local_path)
     if not os.path.exists(abs_path):
         print(f"[ERROR] 画像ファイルが見つかりません: {abs_path}")
         return None
 
-    filename = os.path.basename(abs_path)
-    content_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
-    with open(abs_path, "rb") as f:
-        file_bytes = f.read()
-
-    # HTTPヘッダーはlatin-1しかエンコードできないため、日本語ファイル名は
-    # そのまま入れるとUnicodeEncodeErrorになる。ASCII安全な名前をfilenameに、
-    # 元のファイル名はRFC 6266のfilename*でパーセントエンコードして保持する。
-    ascii_filename = re.sub(r"[^A-Za-z0-9._-]", "_", filename) or "image"
-    encoded_filename = quote(filename)
-
-    res = requests.post(
-        f"{WP_BASE_URL.rstrip('/')}/wp-json/wp/v2/media",
-        auth=(WP_USER, WP_APP_PASSWORD),
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="{ascii_filename}"; '
-                f"filename*=UTF-8''{encoded_filename}"
-            ),
-            "Content-Type": content_type,
-        },
-        data=file_bytes,
-    )
-    if res.status_code in (200, 201):
-        return res.json().get("source_url")
-    print(f"[ERROR] WordPressアップロード失敗: {res.status_code} {res.text}")
-    return None
+    encoded_path = "/".join(quote(part) for part in local_path.split("/"))
+    return f"https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/{encoded_path}"
 
 
 def create_carousel_item(image_url: str) -> Optional[str]:
@@ -155,9 +124,9 @@ def create_carousel_post(children_ids: list, text: str) -> Optional[str]:
 def create_image_or_carousel_post(image_paths: list, text: str) -> Optional[str]:
     image_urls = []
     for path in image_paths:
-        public_url = upload_image_to_wordpress(path)
+        public_url = get_public_image_url(path)
         if not public_url:
-            print(f"[ERROR] 画像アップロードに失敗したため投稿を中止: {path}")
+            print(f"[ERROR] 画像URLの取得に失敗したため投稿を中止: {path}")
             return None
         image_urls.append(public_url)
 
